@@ -1,0 +1,181 @@
+import React from 'react';
+import { XIcon, ChevronLeftIcon, MapPinIcon, PhoneIcon, MailIcon, AlertCircleIcon, ClockIcon, UserIcon, PillIcon } from 'lucide-react';
+import { useData } from '../context/DataContext';
+import { PrescriptionChart } from '../dashboard/PrescriptionChart';
+interface DoctorProfileProps {
+  doctorId: string;
+  onClose: () => void;
+}
+export function DoctorProfile({
+  doctorId,
+  onClose
+}: DoctorProfileProps) {
+  const {
+    prescriptions,
+    processedData
+  } = useData();
+  const doctorPrescriptions = prescriptions.filter(p => p.Doctor_ID === doctorId);
+  const stats = {
+    total: doctorPrescriptions.length,
+    controlledSubstances: doctorPrescriptions.filter(p => ['Opioid', 'Stimulant', 'Sedative'].includes(p.Drug_Class)).length,
+    lastMonth: doctorPrescriptions.filter(p => {
+      const prescDate = new Date(p.Prescription_Date);
+      if (isNaN(prescDate.getTime())) {
+        return false; // Skip invalid dates
+      }
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      return prescDate >= thirtyDaysAgo;
+    }).length
+  };
+  const riskScore = processedData.riskScores[doctorId] || 0;
+  const flaggedPrescriptions = doctorPrescriptions.filter(p => ['Opioid', 'Stimulant', 'Sedative'].includes(p.Drug_Class)).length;
+  const alerts = [];
+  if (stats.controlledSubstances / stats.total > 0.5) {
+    alerts.push({
+      id: 1,
+      type: 'High Volume Alert',
+      details: 'High ratio of controlled substance prescriptions',
+      date: new Date().toISOString()
+    });
+  }
+  if (riskScore >= 80) {
+    alerts.push({
+      id: 2,
+      type: 'Risk Score Alert',
+      details: 'Doctor risk score exceeds threshold',
+      date: new Date().toISOString()
+    });
+  }
+  return <div className="h-full flex flex-col">
+      <div className="border-b border-gray-200 bg-white">
+        <div className="px-6 py-4">
+          <div className="flex items-center justify-between">
+            <button onClick={onClose} className="inline-flex items-center text-gray-600 hover:text-gray-800">
+              <ChevronLeftIcon size={20} className="mr-1" />
+              Back to List
+            </button>
+            <button onClick={onClose} className="p-2 rounded-md text-gray-400 hover:text-gray-500">
+              <XIcon size={20} />
+            </button>
+          </div>
+          <div className="mt-4 flex items-start justify-between">
+            <div className="flex items-center">
+              <div className="h-16 w-16 bg-gray-100 rounded-full flex items-center justify-center">
+                <UserIcon size={32} className="text-gray-500" />
+              </div>
+              <div className="ml-4">
+                <h1 className="text-2xl font-bold text-gray-900">
+                  Dr. {doctorId}
+                </h1>
+                <p className="text-gray-600">ID: {doctorId}</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-4">
+              <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${riskScore >= 80 ? 'bg-red-100 text-red-800' : riskScore >= 60 ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'}`}>
+                Risk Score: {Math.round(riskScore)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-5 border-b border-gray-200">
+                <h2 className="text-lg font-medium text-gray-900">
+                  Prescription Activity
+                </h2>
+              </div>
+              <div className="p-6">
+                <PrescriptionChart />
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-5 border-b border-gray-200">
+                <h2 className="text-lg font-medium text-gray-900">
+                  Recent Alerts
+                </h2>
+              </div>
+              <div className="divide-y divide-gray-200">
+                {alerts.map(alert => <div key={alert.id} className="px-6 py-4">
+                    <div className="flex items-start">
+                      <AlertCircleIcon className="h-5 w-5 text-red-500 mt-0.5" />
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-gray-900">
+                          {alert.type}
+                        </h3>
+                        <p className="mt-1 text-sm text-gray-600">
+                          {alert.details}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {new Date(alert.date).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>)}
+                {alerts.length === 0 && <div className="px-6 py-4 text-gray-500 text-sm">
+                    No active alerts
+                  </div>}
+              </div>
+            </div>
+          </div>
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-5 border-b border-gray-200">
+                <h2 className="text-lg font-medium text-gray-900">
+                  Prescription Statistics
+                </h2>
+              </div>
+              <div className="px-6 py-4 space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center text-gray-600">
+                    <PillIcon size={18} className="mr-2" />
+                    Total Prescriptions
+                  </div>
+                  <span className="font-medium">
+                    {stats.total.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center text-gray-600">
+                    <AlertCircleIcon size={18} className="mr-2" />
+                    Controlled Substances
+                  </div>
+                  <span className="font-medium text-red-600">
+                    {stats.controlledSubstances.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center text-gray-600">
+                    <ClockIcon size={18} className="mr-2" />
+                    Last 30 Days
+                  </div>
+                  <span className="font-medium">
+                    {stats.lastMonth.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-5 border-b border-gray-200">
+                <h2 className="text-lg font-medium text-gray-900">
+                  Top Prescribed Medications
+                </h2>
+              </div>
+              <div className="px-6 py-4">
+                {Object.entries(doctorPrescriptions.reduce((acc: any, p) => {
+                acc[p.Drug_Name] = (acc[p.Drug_Name] || 0) + 1;
+                return acc;
+              }, {})).sort(([, a]: any, [, b]: any) => b - a).slice(0, 5).map(([drug, count]: any) => <div key={drug} className="flex justify-between items-center py-2">
+                      <span className="text-sm text-gray-600">{drug}</span>
+                      <span className="text-sm font-medium">{count}</span>
+                    </div>)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>;
+}
