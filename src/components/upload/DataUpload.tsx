@@ -39,22 +39,54 @@ export function DataUpload({
       setFiles(selectedFiles);
     }
   };
+  const numericFields = new Set([
+    'Quantity', 'Days_Supply', 'AWP_Unit_Cost', 'Ingredient_Cost', 'Dispensing_Fee',
+    'Total_Claim_Amount', 'Plan_Paid_Amount', 'Patient_Paid_Amount', 'Reimbursement_Amount',
+    'Rebate_Amount', 'Formulary_Tier', 'Contracted_Rate', 'MAC_Price',
+    'GER_Guaranteed', 'BER_Guaranteed'
+  ]);
+
   const processCSVData = async (file: File) => {
     const text = await file.text();
     const lines = text.split('\n');
-    const headers = lines[0].split(',');
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
     const requiredHeaders = ['Doctor_ID', 'Patient_ID', 'Prescription_Date', 'Drug_Name', 'Drug_Class', 'Quantity', 'Days_Supply', 'Strength', 'Pharmacy_ID'];
     const missingHeaders = requiredHeaders.filter(header => !headers.includes(header));
     if (missingHeaders.length > 0) {
       throw new Error(`Missing required columns: ${missingHeaders.join(', ')}`);
     }
+
     const data = lines.slice(1).filter(line => line.trim()).map(line => {
-      const values = line.split(',');
-      const row = headers.reduce((obj: any, header, index) => {
-        obj[header.trim()] = values[index]?.trim() || '';
-        return obj;
-      }, {});
-      const missingFields = requiredHeaders.filter(header => !row[header]);
+      // Handle quoted CSV fields (e.g. "Drug Name, with comma")
+      const values: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (const char of line) {
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          values.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      values.push(current.trim());
+
+      const row: any = {};
+      headers.forEach((header, index) => {
+        const val = values[index]?.trim().replace(/^"|"$/g, '') || '';
+        if (numericFields.has(header) && val !== '') {
+          const num = parseFloat(val);
+          row[header] = isNaN(num) ? undefined : num;
+        } else if (header === 'Brand_Generic' && val !== '') {
+          row[header] = val.toLowerCase() === 'brand' ? 'brand' : val.toLowerCase() === 'generic' ? 'generic' : undefined;
+        } else {
+          row[header] = val || undefined;
+        }
+      });
+
+      const missingFields = requiredHeaders.filter(header => !row[header] && row[header] !== 0);
       if (missingFields.length > 0) {
         throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
       }
@@ -64,26 +96,201 @@ export function DataUpload({
       }
       return row;
     });
+
     const uniqueDoctors = new Set(data.map((d: any) => d.Doctor_ID));
     const uniquePharmacies = new Set(data.map((d: any) => d.Pharmacy_ID));
     const uniquePatients = new Set(data.map((d: any) => d.Patient_ID));
-    const riskScores: {
-      [key: string]: number;
-    } = {};
+    const riskScores: { [key: string]: number } = {};
     data.forEach((prescription: any) => {
       const doctorId = prescription.Doctor_ID;
       if (!riskScores[doctorId]) {
         riskScores[doctorId] = Math.random() * 100;
       }
     });
+
+    // Detect if pricing data is present
+    const pricingColumns = ['AWP_Unit_Cost', 'Ingredient_Cost', 'Plan_Paid_Amount', 'Reimbursement_Amount', 'Total_Claim_Amount'];
+    const hasPricingData = pricingColumns.some(col => headers.includes(col));
+
+    let pricingMetrics, pbmMetrics, auditMetrics;
+    if (hasPricingData) {
+      pricingMetrics = computePricingMetrics(data);
+      pbmMetrics = computePBMMetrics(data);
+      auditMetrics = computeAuditMetrics(data);
+    }
+
     setPrescriptions(data);
     setProcessedData({
       totalPrescriptions: data.length,
       totalDoctors: uniqueDoctors.size,
       totalPharmacies: uniquePharmacies.size,
       totalPatients: uniquePatients.size,
-      riskScores
+      riskScores,
+      hasPricingData,
+      pricingMetrics,
+      pbmMetrics,
+      auditMetrics
     });
+  };
+
+  const computePricingMetrics = (data: any[]) => {
+    let totalClaimAmount = 0, totalPlanPaid = 0, totalPatientPaid = 0, totalRebates = 0;
+    let spreadSum = 0, spreadCount = 0;
+    const spreadByPBM: { [pbmId: string]: number } = {};
+    const spreadCountByPBM: { [pbmId: string]: number } = {};
+    let claimCountWithPricing = 0;
+
+    data.forEach((rx: any) => {
+      if (rx.Total_Claim_Amount != null || rx.Plan_Paid_Amount != null) {
+        claimCountWithPricing++;
+        totalClaimAmount += rx.Total_Claim_Amount || 0;
+        totalPlanPaid += rx.Plan_Paid_Amount || 0;
+        totalPatientPaid += rx.Patient_Paid_Amount || 0;
+        totalRebates += rx.Rebate_Amount || 0;
+
+        if (rx.Plan_Paid_Amount != null && rx.Reimbursement_Amount != null) {
+          const spread = rx.Plan_Paid_Amount - rx.Reimbursement_Amount;
+          spreadSum += spread;
+          spreadCount++;
+          if (rx.PBM_ID) {
+            spreadByPBM[rx.PBM_ID] = (spreadByPBM[rx.PBM_ID] || 0) + spread;
+            spreadCountByPBM[rx.PBM_ID] = (spreadCountByPBM[rx.PBM_ID] || 0) + 1;
+          }
+        }
+      }
+    });
+
+    // Average the spread per PBM
+    Object.keys(spreadByPBM).forEach(pbm => {
+      spreadByPBM[pbm] = spreadByPBM[pbm] / (spreadCountByPBM[pbm] || 1);
+    });
+
+    return {
+      totalClaimAmount,
+      totalPlanPaid,
+      totalPatientPaid,
+      totalRebates,
+      averageSpread: spreadCount > 0 ? spreadSum / spreadCount : 0,
+      spreadByPBM,
+      claimCountWithPricing
+    };
+  };
+
+  const computePBMMetrics = (data: any[]) => {
+    const pbmSet = new Set<string>();
+    const planSponsorSet = new Set<string>();
+    const claimsByPBM: { [k: string]: number } = {};
+    const costByPBM: { [k: string]: number } = {};
+    const genericCostByPBM: { [k: string]: number } = {};
+    const genericAWPByPBM: { [k: string]: number } = {};
+    const brandCostByPBM: { [k: string]: number } = {};
+    const brandAWPByPBM: { [k: string]: number } = {};
+
+    data.forEach((rx: any) => {
+      if (rx.PBM_ID) pbmSet.add(rx.PBM_ID);
+      if (rx.Plan_Sponsor_ID) planSponsorSet.add(rx.Plan_Sponsor_ID);
+      if (rx.PBM_ID) {
+        claimsByPBM[rx.PBM_ID] = (claimsByPBM[rx.PBM_ID] || 0) + 1;
+        costByPBM[rx.PBM_ID] = (costByPBM[rx.PBM_ID] || 0) + (rx.Total_Claim_Amount || 0);
+
+        if (rx.Brand_Generic === 'generic' && rx.Ingredient_Cost != null && rx.AWP_Unit_Cost != null) {
+          genericCostByPBM[rx.PBM_ID] = (genericCostByPBM[rx.PBM_ID] || 0) + rx.Ingredient_Cost;
+          genericAWPByPBM[rx.PBM_ID] = (genericAWPByPBM[rx.PBM_ID] || 0) + (rx.AWP_Unit_Cost * (rx.Quantity || 1));
+        }
+        if (rx.Brand_Generic === 'brand' && rx.Ingredient_Cost != null && rx.AWP_Unit_Cost != null) {
+          brandCostByPBM[rx.PBM_ID] = (brandCostByPBM[rx.PBM_ID] || 0) + rx.Ingredient_Cost;
+          brandAWPByPBM[rx.PBM_ID] = (brandAWPByPBM[rx.PBM_ID] || 0) + (rx.AWP_Unit_Cost * (rx.Quantity || 1));
+        }
+      }
+    });
+
+    const avgCostByPBM: { [k: string]: number } = {};
+    const genericRateByPBM: { [k: string]: number } = {};
+    const brandRateByPBM: { [k: string]: number } = {};
+
+    Object.keys(claimsByPBM).forEach(pbm => {
+      avgCostByPBM[pbm] = costByPBM[pbm] / claimsByPBM[pbm];
+      genericRateByPBM[pbm] = genericAWPByPBM[pbm] ? (genericCostByPBM[pbm] / genericAWPByPBM[pbm]) * 100 : 0;
+      brandRateByPBM[pbm] = brandAWPByPBM[pbm] ? (brandCostByPBM[pbm] / brandAWPByPBM[pbm]) * 100 : 0;
+    });
+
+    return {
+      pbmList: Array.from(pbmSet),
+      planSponsorList: Array.from(planSponsorSet),
+      claimsByPBM,
+      avgCostByPBM,
+      genericRateByPBM,
+      brandRateByPBM
+    };
+  };
+
+  const computeAuditMetrics = (data: any[]) => {
+    const TOLERANCE = 0.02;
+    let totalAuditableRecords = 0, overchargeCount = 0, underchargeCount = 0, totalOverchargeAmount = 0;
+    const gerActualByPBM: { [k: string]: number } = {};
+    const gerVarianceByPBM: { [k: string]: number } = {};
+    const berActualByPBM: { [k: string]: number } = {};
+    const berVarianceByPBM: { [k: string]: number } = {};
+
+    // GER/BER computed from PBM metrics
+    const genericCostByPBM: { [k: string]: number } = {};
+    const genericAWPByPBM: { [k: string]: number } = {};
+    const brandCostByPBM: { [k: string]: number } = {};
+    const brandAWPByPBM: { [k: string]: number } = {};
+    const gerGuaranteedByPBM: { [k: string]: number } = {};
+    const berGuaranteedByPBM: { [k: string]: number } = {};
+
+    data.forEach((rx: any) => {
+      // Contract compliance check
+      if (rx.Contracted_Rate != null && rx.Plan_Paid_Amount != null) {
+        totalAuditableRecords++;
+        const variance = rx.Plan_Paid_Amount - rx.Contracted_Rate;
+        if (variance > rx.Contracted_Rate * TOLERANCE) {
+          overchargeCount++;
+          totalOverchargeAmount += variance;
+        } else if (variance < -(rx.Contracted_Rate * TOLERANCE)) {
+          underchargeCount++;
+        }
+      }
+
+      // GER/BER tracking
+      if (rx.PBM_ID && rx.Ingredient_Cost != null && rx.AWP_Unit_Cost != null) {
+        const awpTotal = rx.AWP_Unit_Cost * (rx.Quantity || 1);
+        if (rx.Brand_Generic === 'generic') {
+          genericCostByPBM[rx.PBM_ID] = (genericCostByPBM[rx.PBM_ID] || 0) + rx.Ingredient_Cost;
+          genericAWPByPBM[rx.PBM_ID] = (genericAWPByPBM[rx.PBM_ID] || 0) + awpTotal;
+          if (rx.GER_Guaranteed != null) gerGuaranteedByPBM[rx.PBM_ID] = rx.GER_Guaranteed;
+        }
+        if (rx.Brand_Generic === 'brand') {
+          brandCostByPBM[rx.PBM_ID] = (brandCostByPBM[rx.PBM_ID] || 0) + rx.Ingredient_Cost;
+          brandAWPByPBM[rx.PBM_ID] = (brandAWPByPBM[rx.PBM_ID] || 0) + awpTotal;
+          if (rx.BER_Guaranteed != null) berGuaranteedByPBM[rx.PBM_ID] = rx.BER_Guaranteed;
+        }
+      }
+    });
+
+    Object.keys(genericCostByPBM).forEach(pbm => {
+      const actual = genericAWPByPBM[pbm] ? (genericCostByPBM[pbm] / genericAWPByPBM[pbm]) * 100 : 0;
+      gerActualByPBM[pbm] = actual;
+      gerVarianceByPBM[pbm] = gerGuaranteedByPBM[pbm] != null ? actual - gerGuaranteedByPBM[pbm] : 0;
+    });
+    Object.keys(brandCostByPBM).forEach(pbm => {
+      const actual = brandAWPByPBM[pbm] ? (brandCostByPBM[pbm] / brandAWPByPBM[pbm]) * 100 : 0;
+      berActualByPBM[pbm] = actual;
+      berVarianceByPBM[pbm] = berGuaranteedByPBM[pbm] != null ? actual - berGuaranteedByPBM[pbm] : 0;
+    });
+
+    return {
+      totalAuditableRecords,
+      complianceRate: totalAuditableRecords > 0 ? ((totalAuditableRecords - overchargeCount - underchargeCount) / totalAuditableRecords) * 100 : 100,
+      overchargeCount,
+      underchargeCount,
+      totalOverchargeAmount,
+      gerActualByPBM,
+      gerVarianceByPBM,
+      berActualByPBM,
+      berVarianceByPBM
+    };
   };
   const handleUpload = async () => {
     if (files.length === 0) return;
@@ -241,6 +448,21 @@ export function DataUpload({
                 <li>Pharmacy_ID (dispensing pharmacy identifier)</li>
               </ul>
               <p className="text-sm text-gray-700 font-medium mt-4 mb-2">
+                Optional Columns for Pricing & PBM Analysis:
+              </p>
+              <ul className="list-disc pl-5 text-sm text-gray-600 space-y-1 mb-4">
+                <li>NDC (National Drug Code)</li>
+                <li>AWP_Unit_Cost (Average Wholesale Price per unit)</li>
+                <li>Ingredient_Cost, Dispensing_Fee, Total_Claim_Amount</li>
+                <li>Plan_Paid_Amount, Patient_Paid_Amount, Reimbursement_Amount</li>
+                <li>Rebate_Amount</li>
+                <li>PBM_ID, PBM_Name, Plan_Sponsor_ID, Plan_Sponsor_Name</li>
+                <li>Formulary_Tier (1-5)</li>
+                <li>Contracted_Rate, MAC_Price</li>
+                <li>GER_Guaranteed, BER_Guaranteed (as percentages)</li>
+                <li>Brand_Generic (brand or generic)</li>
+              </ul>
+              <p className="text-sm text-gray-700 font-medium mb-2">
                 Example:
               </p>
               <div className="bg-gray-100 p-2 rounded overflow-x-auto">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrainCircuitIcon, TrendingUpIcon, AlertCircleIcon, MapPinIcon } from 'lucide-react';
+import { BrainCircuitIcon, TrendingUpIcon, AlertCircleIcon, MapPinIcon, DollarSignIcon } from 'lucide-react';
 import { useData } from '../context/DataContext';
 export function SmartInsights() {
   const {
@@ -26,7 +26,33 @@ export function SmartInsights() {
       return acc;
     }, {});
     const hotspotCount = Object.values(pharmacyPrescriptions).filter((count: any) => count > 100).length;
-    return [{
+    const pricingInsights: { title: string; insight: string; type: 'warning' | 'info'; icon: React.ReactNode }[] = [];
+    if (processedData.hasPricingData && processedData.pricingMetrics) {
+      const pm = processedData.pricingMetrics;
+      if (pm.averageSpread > 0) {
+        pricingInsights.push({
+          title: 'Spread Pricing',
+          insight: `Average spread pricing margin is $${pm.averageSpread.toFixed(2)} per claim across ${pm.claimCountWithPricing.toLocaleString()} priced claims.`,
+          type: pm.averageSpread > 5 ? 'warning' : 'info',
+          icon: <DollarSignIcon className="h-5 w-5" />
+        });
+      }
+      if (processedData.auditMetrics) {
+        const gerPBMs = Object.keys(processedData.auditMetrics.gerVarianceByPBM).filter(
+          pbm => processedData.auditMetrics!.gerVarianceByPBM[pbm] > 2
+        );
+        if (gerPBMs.length > 0) {
+          pricingInsights.push({
+            title: 'GER Compliance',
+            insight: `${gerPBMs.length} PBM(s) are underperforming their Generic Effective Rate guarantees. Review audit page for details.`,
+            type: 'warning',
+            icon: <DollarSignIcon className="h-5 w-5" />
+          });
+        }
+      }
+    }
+
+    return [...pricingInsights, {
       title: 'Prescription Pattern Analysis',
       insight: `${(controlledSubstanceRatio * 100).toFixed(1)}% of recent prescriptions are controlled substances${controlledSubstanceRatio > 0.4 ? ', indicating elevated risk' : ', within normal range'}`,
       type: controlledSubstanceRatio > 0.4 ? 'warning' : 'info',

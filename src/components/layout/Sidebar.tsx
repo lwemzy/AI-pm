@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboardIcon, UploadIcon, UserIcon, FileTextIcon, AlertCircleIcon, SettingsIcon, LogOutIcon, LineChartIcon, PillIcon, Building2Icon } from 'lucide-react';
+import { LayoutDashboardIcon, UploadIcon, UserIcon, FileTextIcon, AlertCircleIcon, SettingsIcon, LogOutIcon, LineChartIcon, PillIcon, Building2Icon, DollarSignIcon, ScaleIcon, ClipboardCheckIcon } from 'lucide-react';
 interface SidebarProps {
   currentPage: string;
   setCurrentPage: (page: string) => void;
@@ -36,6 +36,18 @@ export function Sidebar({
     id: 'reports',
     label: 'Reports',
     icon: <FileTextIcon size={20} />
+  }, {
+    id: 'pricing',
+    label: 'Pricing',
+    icon: <DollarSignIcon size={20} />
+  }, {
+    id: 'pbm',
+    label: 'PBM Analysis',
+    icon: <ScaleIcon size={20} />
+  }, {
+    id: 'audit',
+    label: 'Audit',
+    icon: <ClipboardCheckIcon size={20} />
   }, {
     id: 'alerts',
     label: 'Alerts',

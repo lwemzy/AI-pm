@@ -14,6 +14,9 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useAuth } from './components/auth/AuthContext';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 import { ReportsPage } from './components/reports/ReportsPage';
+import { PricingPage } from './components/pricing/PricingPage';
+import { PBMComparisonPage } from './components/pbm/PBMComparisonPage';
+import { AuditPage } from './components/audit/AuditPage';
 function AppContent() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const {
@@ -40,6 +43,9 @@ function AppContent() {
           {currentPage === 'pharmacies' && <PharmaciesPage />}
           {currentPage === 'prescriptions' && <PrescriptionsPage />}
           {currentPage === 'reports' && <ReportsPage />}
+          {currentPage === 'pricing' && <PricingPage />}
+          {currentPage === 'pbm' && <PBMComparisonPage />}
+          {currentPage === 'audit' && <AuditPage />}
         </main>
       </div>
     </div>;

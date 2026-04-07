@@ -1,5 +1,4 @@
-import React from 'react';
-import { XIcon, ChevronLeftIcon, UserIcon, PillIcon, CalendarIcon, AlertCircleIcon, ClockIcon, Building2Icon } from 'lucide-react';
+import { XIcon, ChevronLeftIcon, UserIcon, PillIcon, AlertCircleIcon, Building2Icon } from 'lucide-react';
 import { useData } from '../context/DataContext';
 interface PrescriptionDetailsProps {
     prescriptionId: string;
@@ -156,6 +155,51 @@ export function PrescriptionDetails({
                             </div>
                         </div>
                     </div>
+                    {raw.Plan_Paid_Amount != null && (
+                        <div className="bg-white rounded-lg shadow">
+                            <div className="px-6 py-5 border-b border-gray-200">
+                                <h2 className="text-lg font-medium text-gray-900">Pricing Details</h2>
+                            </div>
+                            <div className="p-6 grid grid-cols-2 gap-6">
+                                {raw.AWP_Unit_Cost != null && <div>
+                                    <label className="text-sm font-medium text-gray-500">AWP (per unit)</label>
+                                    <p className="mt-1 text-lg text-gray-900">${raw.AWP_Unit_Cost.toFixed(2)}</p>
+                                </div>}
+                                {raw.Ingredient_Cost != null && <div>
+                                    <label className="text-sm font-medium text-gray-500">Ingredient Cost</label>
+                                    <p className="mt-1 text-lg text-gray-900">${raw.Ingredient_Cost.toFixed(2)}</p>
+                                </div>}
+                                <div>
+                                    <label className="text-sm font-medium text-gray-500">Plan Paid</label>
+                                    <p className="mt-1 text-lg text-gray-900">${(raw.Plan_Paid_Amount || 0).toFixed(2)}</p>
+                                </div>
+                                {raw.Patient_Paid_Amount != null && <div>
+                                    <label className="text-sm font-medium text-gray-500">Patient Paid</label>
+                                    <p className="mt-1 text-lg text-gray-900">${raw.Patient_Paid_Amount.toFixed(2)}</p>
+                                </div>}
+                                {raw.Reimbursement_Amount != null && <div>
+                                    <label className="text-sm font-medium text-gray-500">Reimbursement</label>
+                                    <p className="mt-1 text-lg text-gray-900">${raw.Reimbursement_Amount.toFixed(2)}</p>
+                                </div>}
+                                {raw.Reimbursement_Amount != null && raw.Plan_Paid_Amount != null && <div>
+                                    <label className="text-sm font-medium text-gray-500">Spread</label>
+                                    <p className={`mt-1 text-lg font-medium ${(raw.Plan_Paid_Amount - raw.Reimbursement_Amount) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                        ${(raw.Plan_Paid_Amount - raw.Reimbursement_Amount).toFixed(2)}
+                                    </p>
+                                </div>}
+                                {raw.Contracted_Rate != null && <div>
+                                    <label className="text-sm font-medium text-gray-500">Contracted Rate</label>
+                                    <p className="mt-1 text-lg text-gray-900">${raw.Contracted_Rate.toFixed(2)}</p>
+                                </div>}
+                                {raw.Contracted_Rate != null && raw.Plan_Paid_Amount != null && <div>
+                                    <label className="text-sm font-medium text-gray-500">Contract Compliance</label>
+                                    <p className={`mt-1 text-lg font-medium ${Math.abs(raw.Plan_Paid_Amount - raw.Contracted_Rate) <= raw.Contracted_Rate * 0.02 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {Math.abs(raw.Plan_Paid_Amount - raw.Contracted_Rate) <= raw.Contracted_Rate * 0.02 ? 'Within tolerance' : 'Out of compliance'}
+                                    </p>
+                                </div>}
+                            </div>
+                        </div>
+                    )}
                     <div className="bg-white rounded-lg shadow">
                         <div className="px-6 py-5 border-b border-gray-200">
                             <h2 className="text-lg font-medium text-gray-900">Alerts</h2>
